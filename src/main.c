@@ -332,6 +332,8 @@ __cdecl void voteStart() {
             atomic_store(&vStruct->invoked, 1);
             pthread_mutex_unlock(&vStruct->mutex);
 
+            Plugin_ChatPrintf(-1, "%s started vote for map %s\n", Plugin_GetPlayerName(invokerSlot), vStruct->map);
+
         } else {
             Plugin_ChatPrintf(invokerSlot, "^1Invalid usage, ^7usage: %s map <mapname> <mode>\n", Plugin_Cmd_Argv(0));
 
@@ -369,7 +371,7 @@ __cdecl void voteStart() {
     atomic_fetch_add(&vStruct->votedPlayerIdsIndex, 1);
     votedPlayerIdsIndex = atomic_load(&vStruct->votedPlayerIdsIndex);
 
-    unsigned char thresholdMet = ((votedPlayerIdsIndex * 2) > connectedPlayers()) ? 1 : 0;
+    unsigned char thresholdMet = (votedPlayerIdsIndex > (connectedPlayers() / 2)) ? 1 : 0;
 
     if (thresholdMet) {
         atomic_store(&vStruct->invoked, 0);
@@ -380,6 +382,9 @@ __cdecl void voteStart() {
 
     if (thresholdMet) {
         endVote(vStruct, 1);
+
+    } else {
+        Plugin_ChatPrintf(-1, "%s voted for the map, %i of %i players have voted the map\n", Plugin_GetPlayerName(invokerSlot), votedPlayerIdsIndex, connectedPlayers());
 
     }
 
