@@ -19,7 +19,7 @@ void endVote(struct voteStruct* vStruct, int changeMap) {
     }
 
     if (changeMap && vStruct->map && vStruct->gameType) {
-        Plugin_Printf("Changing map to %s", vStruct->map);
+        Plugin_Printf("Changing map to %s\n", vStruct->map);
 
         snprintf(b, sizeof(b), "set g_gametype %s;", vStruct->gameType);
         Plugin_Cbuf_AddText(b);
@@ -51,18 +51,22 @@ void* voteTimer(void* arg) {
 
     while (!atomic_load(&vStruct->timerExit)) {
         if (!atomic_load(&vStruct->invoked)) {
-            Plugin_Printf("No votes in progress");
+            Plugin_Printf("No votes in progress\n");
             nanosleep(&dur500000000, NULL);
 
         } else {
-            Plugin_Printf("Vote in progress, will finish in 30 seconds");
+            Plugin_Printf("Vote in progress, will finish in 30 seconds\n");
 
             time_t startTime;
             pthread_mutex_lock(&vStruct->mutex);
             startTime = vStruct->startTime;
             pthread_mutex_unlock(&vStruct->mutex);
 
-            if (difftime(time(NULL), startTime) > 30) {
+            int voted = atomic_load(&vStruct->votedPlayerIdsIndex);
+            if (voted && ((voted * 2) > connectedPlayers())) {
+                endVote(vStruct, 1);
+
+            } else if (difftime(time(NULL), startTime) > 30) {
                 endVote(vStruct, 0);
 
             }

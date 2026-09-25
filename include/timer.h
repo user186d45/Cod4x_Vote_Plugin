@@ -5,5 +5,6 @@
 
 void* voteTimer(void* arg);
 void endVote(struct voteStruct* vStruct, int changeMap);
+int connectedPlayers();
 
 #endif

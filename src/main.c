@@ -7,6 +7,7 @@
 #include <time.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <inttypes.h>
 
 static struct voteStruct*       vStruct;
 static struct mapsStruct*       mStruct;
@@ -32,10 +33,26 @@ static void freeMapsArray(size_t count) {
 
 }
 
+int connectedPlayers() {
+    int count = 0;
+    int slots = Plugin_GetSlotCount();
+    for (int i = 0; i < slots; i++) {
+        client_t* cl = Plugin_GetClientForClientNum(i);
+        if (cl && cl->state == CS_ACTIVE) {
+            count++;
+
+        }
+
+    }
+
+    return count;
+
+}
+
 PCL int OnInit() {
     vStruct = (struct voteStruct*)malloc(sizeof(struct voteStruct));
     if (!vStruct) {
-        Plugin_PrintError("Failed to allocate memory for voteStruct instance");
+        Plugin_PrintError("Failed to allocate memory for voteStruct instance\n");
 
         return 1;
 
@@ -51,7 +68,7 @@ PCL int OnInit() {
 
     mStruct = (struct mapsStruct*)malloc(sizeof(struct mapsStruct));
     if (!mStruct) {
-        Plugin_PrintError("Failed to allocate memory for mapsStruct instance");
+        Plugin_PrintError("Failed to allocate memory for mapsStruct instance\n");
 
         goto fail_vstruct;
 
@@ -61,7 +78,7 @@ PCL int OnInit() {
 
     FILE* fp = fopen("maps.txt", "r");
     if (!fp) {
-        Plugin_PrintError("Failed to open maps.txt file, returning...");
+        Plugin_PrintError("Failed to open maps.txt file, returning...\n");
 
         goto fail_mstruct;
 
@@ -71,7 +88,7 @@ PCL int OnInit() {
     size_t mapsCount = 0;
     mStruct->mapsArray = (const char**)malloc(mapsCap * sizeof(const char*));
     if (!mStruct->mapsArray) {
-        Plugin_PrintError("Failed to allocate memory for mapsArray");
+        Plugin_PrintError("Failed to allocate memory for mapsArray\n");
 
         goto fail_fp;
 
@@ -113,7 +130,7 @@ PCL int OnInit() {
             mapsCap *= 2;
             const char** grown = (const char**)realloc(mStruct->mapsArray, mapsCap * sizeof(const char*));
             if (!grown) {
-                Plugin_PrintError("Failed to grow mapsArray memory");
+                Plugin_PrintError("Failed to grow mapsArray memory\n");
 
                 goto fail_maps;
 
@@ -124,7 +141,7 @@ PCL int OnInit() {
 
         char* mapCopy = (char*)malloc((mapLen + 1) * sizeof(char));
         if (!mapCopy) {
-            Plugin_PrintError("Failed to allocate memory for a map name");
+            Plugin_PrintError("Failed to allocate memory for a map name\n");
 
             goto fail_maps;
 
@@ -138,7 +155,7 @@ PCL int OnInit() {
     fp = NULL;
 
     if (mapsCount == 0) {
-        Plugin_PrintError("No maps found at the specified file, exiting...");
+        Plugin_PrintError("No maps found at the specified file, exiting...\n");
 
         goto fail_maps;
 
@@ -152,7 +169,7 @@ PCL int OnInit() {
     mStruct->mapsArraySize = (int)mapsCount;
 
     if (pthread_create(&timerThread, NULL, voteTimer, vStruct) != 0) {
-        Plugin_PrintError("Failed to create the vote timer thread");
+        Plugin_PrintError("Failed to create the vote timer thread\n");
 
         goto fail_maps;
 
@@ -184,7 +201,7 @@ fail_vstruct:
 __cdecl void voteStart() {
     int invokerSlot = Plugin_Cmd_GetInvokerSlot();
     if (invokerSlot < 0) {
-        Plugin_Printf("The vote command can only be used by players.");
+        Plugin_Printf("The vote command can only be used by players.\n");
 
         return;
 
@@ -192,187 +209,167 @@ __cdecl void voteStart() {
 
     uint64_t invokerPlayerId = Plugin_GetPlayerID((unsigned int)invokerSlot);
 
-    if (
-        (Plugin_Cmd_Argc() == 4) &&
-        (strcmp(Plugin_Cmd_Argv(1), "map") == 0)
-       ) {
-        if (atomic_load(&vStruct->invoked)) {
-            if (vStruct->invokerPlayerId == invokerPlayerId) {
-                Plugin_ChatPrintf(
-                    invokerSlot,
-                    "A vote you have already started is in progress, please wait until it "
-                    "reaches an end."
-                );
-
-            } else {
+    if (!atomic_load(&vStruct->invoked)) {
+        if (
+            (Plugin_Cmd_Argc() == 4) &&
+            (strcmp(Plugin_Cmd_Argv(1), "map") == 0)
+           ) {
+            char* mapName = Plugin_Cmd_Argv(2);
+            size_t mapNameLen = strlen(mapName);
+            if (mapNameLen > 256) {
                 Plugin_ChatPrintf(
                         invokerSlot,
-                        "A vote is still in progress, wait until it reaches an end."
+                        "Please do not spam!\n"
                 );
 
-            }
-
-            return;
-
-        }
-
-        char* mapName = Plugin_Cmd_Argv(2);
-        size_t mapNameLen = strlen(mapName);
-        if (mapNameLen > 256) {
-            Plugin_ChatPrintf(
-                    invokerSlot,
-                    "Please do not spam!"
-            );
-
-            return;
-
-        }
-
-        char* mapNameCopy = (char*)malloc((mapNameLen + 1) * sizeof(char));
-        if (!mapNameCopy) {
-            Plugin_PrintError("Failed to allocate memory for the map name copy");
-
-            return;
-
-        }
-        memcpy(mapNameCopy, mapName, mapNameLen);
-        mapNameCopy[mapNameLen] = '\0';
-
-        if (strncmp(mapName, "mp_", 3) == 0) {
-            memmove(mapNameCopy, mapNameCopy + 3, (mapNameLen - 2) * sizeof(char));
-
-        }
-
-        int mapFound = 0;
-        for (int i = 0; i < mStruct->mapsArraySize; i++) {
-            if (strcmp(mapNameCopy, mStruct->mapsArray[i]) == 0) {
-                vStruct->map = mapNameCopy;
-                mapFound = 1;
-
-                break;
+                return;
 
             }
 
-        }
-        if (!mapFound) {
-            Plugin_ChatPrintf(
-                    invokerSlot,
-                    "The entered map %s is not available, please try another one",
-                    mapNameCopy
-            );
+            char* mapNameCopy = (char*)malloc((mapNameLen + 1) * sizeof(char));
+            if (!mapNameCopy) {
+                Plugin_PrintError("Failed to allocate memory for the map name copy\n");
 
-            free(mapNameCopy);
-            vStruct->map = NULL;
+                return;
 
-            return;
+            }
+            memcpy(mapNameCopy, mapName, mapNameLen);
+            mapNameCopy[mapNameLen] = '\0';
 
-        }
+            if (strncmp(mapName, "mp_", 3) == 0) {
+                memmove(mapNameCopy, mapNameCopy + 3, (mapNameLen - 2) * sizeof(char));
 
-        const char* gameTypes[] = {
-            "sd",
-            "war",
-            "dm",
-            "sabotage"
+            }
 
-        };
-        size_t numGameTypes = sizeof(gameTypes) / sizeof(gameTypes[0]);
+            int mapFound = 0;
+            for (int i = 0; i < mStruct->mapsArraySize; i++) {
+                if (strcmp(mapNameCopy, mStruct->mapsArray[i]) == 0) {
+                    mapFound = 1;
 
-        char* gameType = Plugin_Cmd_Argv(3);
-        size_t gameTypeLen = strlen(gameType);
-        if (gameTypeLen > 256) {
-            Plugin_ChatPrintf(invokerSlot, "Please do not spam!");
-
-            free((char*)vStruct->map);
-            vStruct->map = NULL;
-
-            return;
-
-        }
-
-        int gameTypeFound = 0;
-        for (size_t i = 0; i < numGameTypes; i++) {
-            if (strcmp(gameType, gameTypes[i]) == 0) {
-                char* gameTypeCopy = (char*)malloc((gameTypeLen + 1) * sizeof(char));
-                if (!gameTypeCopy) {
-                    Plugin_PrintError("Failed to allocate memory for the game type copy");
-
-                    free((char*)vStruct->map);
-                    vStruct->map = NULL;
-
-                    return;
+                    break;
 
                 }
-                memcpy(gameTypeCopy, gameType, gameTypeLen);
-                gameTypeCopy[gameTypeLen] = '\0';
 
-                vStruct->gameType = gameTypeCopy;
-                gameTypeFound = 1;
+            }
+            if (!mapFound) {
+                Plugin_ChatPrintf(
+                        invokerSlot,
+                        "The entered map %s is not available, please try another one\n",
+                        mapNameCopy
+                );
 
-                break;
+                free(mapNameCopy);
+
+                return;
 
             }
 
-        }
-        if (!gameTypeFound) {
-            Plugin_ChatPrintf(invokerSlot, "The provided gametype is unknown, please try again");
+            const char* gameTypes[] = {
+                "sd",
+                "war",
+                "dm",
+                "sabotage"
 
-            free((char*)vStruct->map);
-            vStruct->map = NULL;
+            };
+            size_t numGameTypes = sizeof(gameTypes) / sizeof(gameTypes[0]);
+
+            char* gameType = Plugin_Cmd_Argv(3);
+            size_t gameTypeLen = strlen(gameType);
+            if (gameTypeLen > 256) {
+                Plugin_ChatPrintf(invokerSlot, "Please do not spam!\n");
+
+                free(mapNameCopy);
+
+                return;
+
+            }
+
+            int gameTypeFound = 0;
+            char* gameTypeCopy = NULL;
+            for (size_t i = 0; i < numGameTypes; i++) {
+                if (strcmp(gameType, gameTypes[i]) == 0) {
+                    gameTypeCopy = (char*)malloc((gameTypeLen + 1) * sizeof(char));
+                    if (!gameTypeCopy) {
+                        Plugin_PrintError("Failed to allocate memory for the game type copy\n");
+
+                        free(mapNameCopy);
+
+                        return;
+
+                    }
+                    memcpy(gameTypeCopy, gameType, gameTypeLen);
+                    gameTypeCopy[gameTypeLen] = '\0';
+                    gameTypeFound = 1;
+
+                    break;
+
+                }
+
+            }
+            if (!gameTypeFound) {
+                Plugin_ChatPrintf(invokerSlot, "The provided gametype is unknown, please try again\n");
+
+                free(mapNameCopy);
+
+                return;
+
+            }
+
+            pthread_mutex_lock(&vStruct->mutex);
+            if (atomic_load(&vStruct->invoked)) {
+                pthread_mutex_unlock(&vStruct->mutex);
+
+                free(mapNameCopy);
+                free(gameTypeCopy);
+
+                return;
+
+            }
+            vStruct->map = mapNameCopy;
+            vStruct->gameType = gameTypeCopy;
+            vStruct->invokerPlayerId = invokerPlayerId;
+            vStruct->startTime = time(NULL);
+            atomic_store(&vStruct->invoked, 1);
+            pthread_mutex_unlock(&vStruct->mutex);
+
+        } else {
+            Plugin_ChatPrintf(invokerSlot, "^1Invalid usage, ^7usage: %s map <mapname> <mode>\n", Plugin_Cmd_Argv(0));
 
             return;
 
         }
-
-        vStruct->invokerPlayerId = invokerPlayerId;
-
-        pthread_mutex_lock(&vStruct->mutex);
-        vStruct->startTime = time(NULL);
-        atomic_store(&vStruct->invoked, 1);
-        pthread_mutex_unlock(&vStruct->mutex);
-
-    } else if (Plugin_Cmd_Argc()) {
-        Plugin_ChatPrintf(invokerSlot, "^1Invalid usage, ^7usage: %s map <mapname> <mode>", Plugin_Cmd_Argv(0));
-
-        return;
-
-    }
-
-    if (!atomic_load(&vStruct->invoked)) {
-        Plugin_ChatPrintf(invokerSlot, "No vote in progress");
-
-        return;
 
     }
 
     pthread_mutex_lock(&vStruct->mutex);
 
-    int votedPlayers = atomic_load(&vStruct->votedPlayerIdsIndex);
-    for (int i = 0; i < votedPlayers; i++) {
+    int votedPlayerIdsIndex = atomic_load(&vStruct->votedPlayerIdsIndex);
+    for (int i = 0; i < votedPlayerIdsIndex; i++) {
         if (atomic_load(&vStruct->votedPlayerIds[i]) == invokerPlayerId) {
             pthread_mutex_unlock(&vStruct->mutex);
 
-            Plugin_ChatPrintf(invokerSlot, "You have already voted.");
+            Plugin_ChatPrintf(invokerSlot, "You have already voted!\n");
 
             return;
 
         }
 
     }
-    if (votedPlayers >= (int)(sizeof(vStruct->votedPlayerIds) / sizeof(vStruct->votedPlayerIds[0]))) {
+    if (votedPlayerIdsIndex >= (int)(sizeof(vStruct->votedPlayerIds) / sizeof(vStruct->votedPlayerIds[0]))) {
         pthread_mutex_unlock(&vStruct->mutex);
 
-        Plugin_ChatPrintf(invokerSlot, "The vote has been cancelled because its capacity was reached.");
+        Plugin_ChatPrintf(invokerSlot, "The vote has been cancelled because its capacity was reached\n");
 
         endVote(vStruct, 0);
 
         return;
 
     }
-    atomic_store(&vStruct->votedPlayerIds[votedPlayers], invokerPlayerId);
+    atomic_store(&vStruct->votedPlayerIds[votedPlayerIdsIndex], invokerPlayerId);
     atomic_fetch_add(&vStruct->votedPlayerIdsIndex, 1);
-    votedPlayers = atomic_load(&vStruct->votedPlayerIdsIndex);
+    votedPlayerIdsIndex = atomic_load(&vStruct->votedPlayerIdsIndex);
 
-    int thresholdMet = ((Plugin_GetSlotCount() / 2) <= votedPlayers);
+    unsigned char thresholdMet = ((votedPlayerIdsIndex * 2) > connectedPlayers()) ? 1 : 0;
 
     if (thresholdMet) {
         atomic_store(&vStruct->invoked, 0);
